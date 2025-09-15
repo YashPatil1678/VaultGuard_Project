@@ -3,14 +3,15 @@ pipeline {
 
   tools {
     jdk 'jdk17'      // Ensure this tool exists in Global Tool Configuration
-    nodejs 'node23'  // Ensure this tool exists in Global Tool Configuration
+    nodejs 'node24'  // Ensure this tool exists in Global Tool Configuration
   }
 
   environment {
     DOCKERHUB_USER = 'yashpatil1678'
     IMAGE_NAME     = 'vault_guard'
     IMAGE_TAG      = "${DOCKERHUB_USER}/${IMAGE_NAME}:${env.BUILD_NUMBER}"
-
+    SCANNER_HOME=tool 'sonar-scanner'
+    
     EMAIL_TO       = 'yashp1678@gmail.com'
     EMAIL_FROM     = 'no-reply@jenkins.local'   // or set to your Gmail if SMTP is configured for it
   }
@@ -37,41 +38,45 @@ pipeline {
                 }
             } 
         }
-    stage('Trivy Filesystem Scan') {
-      steps {
-        sh '''
-          echo "🔎 Trivy FS scan..."
-          trivy fs . -f table -o trivy-fs.txt || true
-          trivy fs . -f json  -o trivy-fs.json || true
-        '''
+        stage('OWASP FS SCAN') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit -n', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('Trivy Filesystem Scan') {
+          steps {
+            sh '''
+              echo "🔎 Trivy FS scan..."
+              trivy fs . -f table -o trivy-fs.txt || true
+              trivy fs . -f json  -o trivy-fs.json || true
+            '''
+          }
+        }
+      stage('Build Docker Image') {
+        steps {
+          sh '''
+            echo "🔨 Building Docker image..."
+            docker rmi -f ${IMAGE_NAME} ${IMAGE_TAG} || true
+            docker build -t ${IMAGE_NAME} .
+          '''
+        }
       }
-    }
-
-    stage('Build Docker Image') {
-      steps {
-        sh '''
-          echo "🔨 Building Docker image..."
-          docker rmi -f ${IMAGE_NAME} ${IMAGE_TAG} || true
-          docker build -t ${IMAGE_NAME} .
-        '''
+      stage('Trivy Image Scan') {
+        steps {
+          sh '''
+            echo "🧪 Trivy Image scan..."
+            trivy image ${IMAGE_NAME} -f table -o trivy-image.txt || true
+            trivy image ${IMAGE_NAME} -f json  -o trivy-image.json || true
+            # To fail on HIGH/CRITICAL, uncomment:
+            # trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}
+          '''
+        }
       }
-    }
-
-    stage('Trivy Image Scan') {
-      steps {
-        sh '''
-          echo "🧪 Trivy Image scan..."
-          trivy image ${IMAGE_NAME} -f table -o trivy-image.txt || true
-          trivy image ${IMAGE_NAME} -f json  -o trivy-image.json || true
-          # To fail on HIGH/CRITICAL, uncomment:
-          # trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}
-        '''
-      }
-    }
 
     stage('Push Docker Image') {
       steps {
-        withCredentials([string(credentialsId: 'docker-cred', variable: 'dockerpwd')]) {
+        withCredentials([string(credentialsId: 'docker-creds', variable: 'dockerpwd')]) {
           sh '''
             echo "${dockerpwd}" | docker login -u ${DOCKERHUB_USER} --password-stdin
             docker tag ${IMAGE_NAME} ${IMAGE_TAG}
