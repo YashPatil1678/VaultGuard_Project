@@ -23,18 +23,15 @@ module "eks" {
   # EKS Managed Node Group(s)
   eks_managed_node_group_defaults = {
     instance_types = ["t2.micro"]
-    attach_cluster_primary_security_group = true
-    node_role_arn                         = aws_iam_role.eks_node_group_role.arn
-
 
     attach_cluster_primary_security_group = true
   }
 
   eks_managed_node_groups = {
-    amc-cluster-wg = {
+    vaultguard-cluster-ng = {
       min_size     = 1
-      max_size     = 2
-      desired_size = 1
+      max_size     = 3
+      desired_size = 2
 
       instance_types = ["t2.micro"]
       capacity_type  = "SPOT"
@@ -46,8 +43,4 @@ module "eks" {
   }
 
   tags = local.tags
-
-  # Ensure service-linked role exists before node groups
-  depends_on = [aws_iam_service_linked_role.eks_nodegroup]
-
 }
