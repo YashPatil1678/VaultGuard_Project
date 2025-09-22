@@ -1,62 +1,125 @@
 pipeline {
-    agent any
+  agent any
 
-    environment {
-        AWS_REGION = 'ap-south-1'
-        CLUSTER_NAME = 'VaultGuard-cluster'
+  parameters {
+    choice(name: 'ACTION', choices: ['apply', 'destroy'], description: 'Terraform action to perform')
+    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional: image (repo:tag) to override in deployment')
+  }
+
+  environment {
+    EKS_CLUSTER_NAME = 'VaultGuard-cluster'
+    EKS_REGION       = 'ap-south-1'
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        checkout([$class: 'GitSCM',
+          branches: [[name: '*/main']],
+          userRemoteConfigs: [[url: 'https://github.com/yashpatil1678/VaultGuard_Project.git']]
+        ])
+      }
     }
 
-    stages {
-
-        stage('Checkout Repo') {
-            steps {
-                checkout scm
-            }
+    stage('Terraform Init & Plan') {
+      steps {
+        dir('EKS_with_terraform_jenkins') {
+          sh '''
+            set -eux
+            terraform init -upgrade -input=false
+            terraform validate || true
+            terraform plan -out=tfplan -input=false
+          '''
         }
-
-        stage('Terraform Init') {
-            steps {
-                dir('terraform') {
-                    sh 'terraform init'
-                }
-            }
-        }
-
-        stage('Terraform Plan & Apply') {
-            steps {
-                dir('terraform') {
-                    sh 'terraform plan -out=tfplan'
-                    sh 'terraform apply -auto-approve tfplan'
-                }
-            }
-        }
-
-        stage('Update Kubeconfig') {
-            steps {
-                sh 'aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME'
-            }
-        }
-
-        stage('Deploy to EKS') {
-            steps {
-                sh 'kubectl apply -f k8s/Vault_Guard_Deployment.yml'
-                sh 'kubectl apply -f k8s/Service.yml'
-            }
-        }
-
-        stage('Verify Deployment') {
-            steps {
-                sh 'kubectl get all'
-            }
-        }
+      }
     }
 
-    post {
-        failure {
-            echo 'Pipeline failed. Check logs.'
+    stage('Approval') {
+      steps {
+        script {
+          timeout(time: 30, unit: 'MINUTES') {
+            def user = input(
+              message: "Approve to ${params.ACTION} the infrastructure?",
+              ok: "Proceed",
+              submitter: "admin,yash",  // Optional: limit to specific users
+              submitterParameter: 'APPROVER'
+            )
+            env.APPROVER = user
+            echo "Approved by ${user}"
+          }
         }
-        success {
-            echo 'EKS cluster and app deployed successfully!'
-        }
+      }
     }
+
+    stage('Terraform Apply/Destroy') {
+      steps {
+        dir('terraform') {
+          sh '''
+            set -eux
+            echo "Approved by: ${APPROVER:-unknown}"
+
+            if [ "${ACTION}" = "apply" ]; then
+              terraform apply -input=false -auto-approve tfplan
+            else
+              terraform destroy -input=false -auto-approve
+            fi
+          '''
+        }
+      }
+    }
+
+    stage('Update kubeconfig') {
+      when { expression { return params.ACTION == 'apply' } }
+      steps {
+        sh '''
+          set -eux
+          aws eks update-kubeconfig --region ${EKS_REGION} --name ${EKS_CLUSTER_NAME}
+
+          echo "Verifying cluster connection:"
+          kubectl get nodes || true
+        '''
+      }
+    }
+
+    stage('Deploy to EKS') {
+      when { expression { return params.ACTION == 'apply' } }
+      steps {
+        sh '''
+          set -eux
+
+          echo "Applying deployment manifest..."
+          kubectl apply -f k8s/Vault_Guard_Deployment.yml
+
+          if [ -n "${IMAGE_TAG}" ]; then
+            echo "Overriding image to ${IMAGE_TAG}..."
+            kubectl set image deployment/vault-guard vault-guard=${IMAGE_TAG} --record || true
+          fi
+
+          if [ -f kubernetes_manifest/service.yaml ]; then
+            echo "Applying service manifest..."
+            kubectl apply -f k8s/service.yaml
+          fi
+
+          echo "Waiting for rollout..."
+          kubectl rollout status deployment/vault-guard --timeout=5m || true
+
+          echo "Cluster objects:"
+          kubectl get all --all-namespaces || true
+        '''
+      }
+    }
+  }
+
+  post {
+    success {
+      echo "✅ Pipeline completed successfully."
+    }
+    failure {
+      echo "❌ Pipeline failed — check logs above."
+    }
+    always {
+      cleanWs()
+    }
+  }
 }
