@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault-guard
+  labels:
+    app: vault-guard
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: vault-guard
+  template:
+    metadata:
+      labels:
+        app: vault-guard
+    spec:
+      containers:
+        - name: vault-guard
+          image: yashpatil1678/vault_guard:latest
+          ports:
+            - containerPort: 5173
+
