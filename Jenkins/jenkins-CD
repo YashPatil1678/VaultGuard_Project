@@ -1,0 +1,62 @@
+pipeline {
+    agent any
+
+    environment {
+        AWS_REGION = 'ap-south-1'
+        CLUSTER_NAME = 'VaultGuard-cluster'
+    }
+
+    stages {
+
+        stage('Checkout Repo') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform init'
+                }
+            }
+        }
+
+        stage('Terraform Plan & Apply') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform plan -out=tfplan'
+                    sh 'terraform apply -auto-approve tfplan'
+                }
+            }
+        }
+
+        stage('Update Kubeconfig') {
+            steps {
+                sh 'aws eks update-kubeconfig --region $AWS_REGION --name $CLUSTER_NAME'
+            }
+        }
+
+        stage('Deploy to EKS') {
+            steps {
+                sh 'kubectl apply -f k8s/deployment.yaml'
+                sh 'kubectl apply -f k8s/service.yaml'
+            }
+        }
+
+        stage('Verify Deployment') {
+            steps {
+                sh 'kubectl get all'
+            }
+        }
+    }
+
+    post {
+        failure {
+            echo 'Pipeline failed. Check logs.'
+        }
+        success {
+            echo 'EKS cluster and app deployed successfully!'
+        }
+    }
+}
