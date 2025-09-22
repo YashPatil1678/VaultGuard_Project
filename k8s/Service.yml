@@ -2,6 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vault-guard-loadbalancer
+  namespace: vault-guard
 spec:
   type: LoadBalancer
   selector:
