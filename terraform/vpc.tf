@@ -13,6 +13,8 @@ module "vpc" {
 
   single_nat_gateway = true    # Single NAT Gateway for all private subnets (Saves Cost)
 
+  map_public_ip_on_launch = true
+
   public_subnet_tags = {
     "kubernetes.io/role/elb" = "1"
   }
