@@ -55,7 +55,7 @@ pipeline {
 
     stage('Terraform Apply/Destroy') {
       steps {
-        dir('EKS_with_terraform_jenkins') {    // Fixed directory here
+        dir('terraform') {    // Fixed directory here
           sh '''
             set -eux
             echo "Approved by: ${APPROVER:-unknown}"
@@ -118,9 +118,9 @@ pipeline {
             kubectl set image deployment/vault-guard vault-guard=${IMAGE_TAG} --record || true
           fi
 
-          if [ -f k8s/service.yaml ]; then
+          if [ -f k8s/Service.yml ]; then
             echo "Applying service manifest..."
-            kubectl apply -f k8s/service.yaml
+            kubectl apply -f k8s/Service.yml
           fi
 
           echo "Waiting for rollout..."
