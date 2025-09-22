@@ -9,6 +9,7 @@ pipeline {
   environment {
     EKS_CLUSTER_NAME = 'VaultGuard-cluster'
     EKS_REGION       = 'ap-south-1'
+    PATH_PREFIX      = "${env.WORKSPACE}/bin"
   }
 
   stages {
@@ -42,7 +43,7 @@ pipeline {
             def user = input(
               message: "Approve to ${params.ACTION} the infrastructure?",
               ok: "Proceed",
-              submitter: "admin,yash",  // Optional: limit to specific users
+              submitter: "admin,yash",
               submitterParameter: 'APPROVER'
             )
             env.APPROVER = user
@@ -54,12 +55,17 @@ pipeline {
 
     stage('Terraform Apply/Destroy') {
       steps {
-        dir('terraform') {
+        dir('EKS_with_terraform_jenkins') {    // Fixed directory here
           sh '''
             set -eux
             echo "Approved by: ${APPROVER:-unknown}"
 
             if [ "${ACTION}" = "apply" ]; then
+              if [ ! -f tfplan ]; then
+                echo "ERROR: tfplan not found! Run plan stage first."
+                ls -la
+                exit 1
+              fi
               terraform apply -input=false -auto-approve tfplan
             else
               terraform destroy -input=false -auto-approve
@@ -72,13 +78,25 @@ pipeline {
     stage('Update kubeconfig') {
       when { expression { return params.ACTION == 'apply' } }
       steps {
-        sh '''
-          set -eux
-          aws eks update-kubeconfig --region ${EKS_REGION} --name ${EKS_CLUSTER_NAME}
+        script {
+          // Install kubectl if missing
+          sh '''
+            set -eux
 
-          echo "Verifying cluster connection:"
-          kubectl get nodes || true
-        '''
+            if ! command -v kubectl >/dev/null 2>&1; then
+              mkdir -p "$WORKSPACE/bin"
+              KUBECTL_VER=$(curl -sL https://dl.k8s.io/release/stable.txt)
+              curl -fsSL -o $WORKSPACE/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VER}/bin/linux/amd64/kubectl"
+              chmod +x $WORKSPACE/bin/kubectl
+            fi
+            export PATH="$WORKSPACE/bin:$PATH"
+
+            aws eks --region ${EKS_REGION} update-kubeconfig --name ${EKS_CLUSTER_NAME}
+
+            echo "Verifying cluster connection:"
+            kubectl get nodes || true
+          '''
+        }
       }
     }
 
@@ -87,6 +105,10 @@ pipeline {
       steps {
         sh '''
           set -eux
+          export PATH="$WORKSPACE/bin:$PATH"
+
+          echo "Creating namespace vault-guard if it doesn't exist..."
+          kubectl apply -f k8s/Namespace.yml
 
           echo "Applying deployment manifest..."
           kubectl apply -f k8s/Vault_Guard_Deployment.yml
@@ -96,7 +118,7 @@ pipeline {
             kubectl set image deployment/vault-guard vault-guard=${IMAGE_TAG} --record || true
           fi
 
-          if [ -f kubernetes_manifest/service.yaml ]; then
+          if [ -f k8s/service.yaml ]; then
             echo "Applying service manifest..."
             kubectl apply -f k8s/service.yaml
           fi
@@ -104,11 +126,12 @@ pipeline {
           echo "Waiting for rollout..."
           kubectl rollout status deployment/vault-guard --timeout=5m || true
 
-          echo "Cluster objects:"
+          echo "Cluster objects in vault-guard namespace:"
           kubectl get all -n vault-guard || true
         '''
       }
     }
+
   }
 
   post {
