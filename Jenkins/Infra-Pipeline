@@ -1,0 +1,75 @@
+pipeline {
+  agent any
+
+  environment {
+    TF_VERSION = '1.5.7'
+    AWS_REGION = 'ap-south-1' // change as per need
+  }
+
+  parameters {
+    choice(name: 'ACTION', choices: ['plan', 'apply', 'destroy'], description: 'Terraform action to perform')
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Install Terraform') {
+      steps {
+        sh """
+          if ! command -v terraform >/dev/null 2>&1; then
+            echo "Terraform not found. Installing version ${TF_VERSION}..."
+            curl -fsSL https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip -o terraform.zip
+            unzip -o terraform.zip
+            sudo mv terraform /usr/local/bin/
+            rm -f terraform.zip
+          else
+            echo "Terraform already installed: $(terraform -version | head -n 1)"
+          fi
+        """
+      }
+    }
+
+    stage('Terraform Init') {
+      steps {
+        dir('terraform') {
+          sh 'terraform init -input=false'
+        }
+      }
+    }
+
+    stage('Terraform Plan/Apply/Destroy') {
+      steps {
+        dir('terraform') {
+          script {
+            if (params.ACTION == 'plan') {
+              sh 'terraform plan -out=tfplan'
+            } else if (params.ACTION == 'apply') {
+              sh 'terraform apply -auto-approve tfplan || terraform apply -auto-approve'
+            } else if (params.ACTION == 'destroy') {
+              sh 'terraform destroy -auto-approve'
+            }
+          }
+        }
+      }
+    }
+
+    stage('Save kubeconfig') {
+      when {
+        expression { params.ACTION == 'apply' }
+      }
+      steps {
+        dir('terraform') {
+          sh '''
+            aws eks update-kubeconfig \
+              --region ${AWS_REGION} \
+              --name $(terraform output -raw cluster_name)
+          '''
+        }
+      }
+    }
+  }
+}
