@@ -2,18 +2,15 @@ pipeline {
   agent any
 
   parameters {
-    choice(name: 'ACTION', choices: ['apply', 'destroy'], description: 'Terraform action to perform')
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional: image (repo:tag) to override in deployment')
   }
 
   environment {
     EKS_CLUSTER_NAME = 'VaultGuard-cluster'
     EKS_REGION       = 'ap-south-1'
-    PATH_PREFIX      = "${env.WORKSPACE}/bin"
   }
 
   stages {
-
     stage('Checkout') {
       steps {
         checkout([$class: 'GitSCM',
@@ -23,123 +20,55 @@ pipeline {
       }
     }
 
-    stage('Terraform Init & Plan') {
-      steps {
-        dir('EKS_with_terraform_jenkins') {
-          sh '''
-            set -eux
-            terraform init -upgrade -input=false
-            terraform validate || true
-            terraform plan -out=tfplan -input=false
-          '''
-        }
-      }
-    }
-
-    stage('Approval') {
-      steps {
-        script {
-          timeout(time: 30, unit: 'MINUTES') {
-            def user = input(
-              message: "Approve to ${params.ACTION} the infrastructure?",
-              ok: "Proceed",
-              submitter: "admin,yash",
-              submitterParameter: 'APPROVER'
-            )
-            env.APPROVER = user
-            echo "Approved by ${user}"
-          }
-        }
-      }
-    }
-
-    stage('Terraform Apply/Destroy') {
-      steps {
-        dir('terraform') {    // Fixed directory here
-          sh '''
-            set -eux
-            echo "Approved by: ${APPROVER:-unknown}"
-
-            if [ "${ACTION}" = "apply" ]; then
-              if [ ! -f tfplan ]; then
-                echo "ERROR: tfplan not found! Run plan stage first."
-                ls -la
-                exit 1
-              fi
-              terraform apply -input=false -auto-approve tfplan
-            else
-              terraform destroy -input=false -auto-approve
-            fi
-          '''
-        }
-      }
-    }
-
-    stage('Update kubeconfig') {
-      when { expression { return params.ACTION == 'apply' } }
-      steps {
-        script {
-          // Install kubectl if missing
-          sh '''
-            set -eux
-
-            if ! command -v kubectl >/dev/null 2>&1; then
-              mkdir -p "$WORKSPACE/bin"
-              KUBECTL_VER=$(curl -sL https://dl.k8s.io/release/stable.txt)
-              curl -fsSL -o $WORKSPACE/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VER}/bin/linux/amd64/kubectl"
-              chmod +x $WORKSPACE/bin/kubectl
-            fi
-            export PATH="$WORKSPACE/bin:$PATH"
-
-            aws eks --region ${EKS_REGION} update-kubeconfig --name ${EKS_CLUSTER_NAME}
-
-            echo "Verifying cluster connection:"
-            kubectl get nodes || true
-          '''
-        }
-      }
-    }
-
-    stage('Deploy to EKS') {
-      when { expression { return params.ACTION == 'apply' } }
+    stage('Configure kubectl') {
       steps {
         sh '''
           set -eux
-          export PATH="$WORKSPACE/bin:$PATH"
+          # Update kubeconfig to connect to existing EKS
+          aws eks --region ${EKS_REGION} update-kubeconfig --name ${EKS_CLUSTER_NAME}
 
-          echo "Creating namespace vault-guard if it doesn't exist..."
-          kubectl apply -f k8s/Namespace.yml
-
-          echo "Applying deployment manifest..."
-          kubectl apply -f k8s/Vault_Guard_Deployment.yml
-
-          if [ -n "${IMAGE_TAG}" ]; then
-            echo "Overriding image to ${IMAGE_TAG}..."
-            kubectl set image deployment/vault-guard vault-guard=${IMAGE_TAG} --record || true
-          fi
-
-          if [ -f k8s/Service.yml ]; then
-            echo "Applying service manifest..."
-            kubectl apply -f k8s/Service.yml
-          fi
-
-          echo "Waiting for rollout..."
-          kubectl rollout status deployment/vault-guard --timeout=5m || true
-
-          echo "Cluster objects in vault-guard namespace:"
-          kubectl get all -n vault-guard || true
+          # Verify cluster access
+          kubectl get nodes
         '''
       }
     }
 
+    stage('Deploy to EKS') {
+      steps {
+        sh '''
+          set -eux
+          # Create namespace if it doesn't exist
+          kubectl apply -f k8s/Namespace.yml
+
+          # Apply deployment manifests
+          kubectl apply -f k8s/Vault_Guard_Deployment.yml
+
+          # Override image if IMAGE_TAG is provided
+          if [ -n "${IMAGE_TAG}" ]; then
+            kubectl set image deployment/vault-guard vault-guard=${IMAGE_TAG} --record
+          fi
+
+          # Apply service manifest if present
+          if [ -f k8s/Service.yml ]; then
+            kubectl apply -f k8s/Service.yml
+          fi
+
+          # Wait for rollout to complete
+          kubectl rollout status deployment/vault-guard --timeout=5m
+
+          # List resources in namespace
+          kubectl get all -n vault-guard
+        '''
+      }
+    }
   }
 
   post {
     success {
-      echo "✅ Pipeline completed successfully."
+      echo "✅ CD pipeline completed successfully."
     }
     failure {
-      echo "❌ Pipeline failed — check logs above."
+      echo "❌ CD pipeline failed — check logs above."
     }
     always {
       cleanWs()
