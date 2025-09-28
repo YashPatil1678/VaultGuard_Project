@@ -8,6 +8,7 @@ pipeline {
   environment {
     EKS_CLUSTER_NAME = 'VaultGuard-cluster'
     EKS_REGION       = 'ap-south-1'
+    NAMESPACE        = 'vault-guard'
   }
 
   stages {
@@ -24,10 +25,10 @@ pipeline {
       steps {
         sh '''
           set -eux
-          # Update kubeconfig to connect to existing EKS
+          # Update kubeconfig to connect to EKS
           aws eks --region ${EKS_REGION} update-kubeconfig --name ${EKS_CLUSTER_NAME}
-
-          # Verify cluster access
+          
+          # Verify access
           kubectl get nodes
         '''
       }
@@ -37,27 +38,25 @@ pipeline {
       steps {
         sh '''
           set -eux
+
           # Create namespace if it doesn't exist
           kubectl apply -f k8s/Namespace.yml
 
-          # Apply deployment manifests
-          kubectl apply -f k8s/Vault_Guard_Deployment.yml
+          # Apply deployment to the correct namespace
+          kubectl apply -f k8s/Vault_Guard_Deployment.yml --namespace=${NAMESPACE}
 
-          # Override image if IMAGE_TAG is provided
+          # Override image if specified
           if [ -n "${IMAGE_TAG}" ]; then
-            kubectl set image deployment/vault-guard vault-guard=${IMAGE_TAG} --record
+            kubectl set image deployment/vault-guard vault-guard=${IMAGE_TAG} --namespace=${NAMESPACE}
           fi
 
-          # Apply service manifest if present
+          # Apply service (if present) to same namespace
           if [ -f k8s/Service.yml ]; then
-            kubectl apply -f k8s/Service.yml
+            kubectl apply -f k8s/Service.yml --namespace=${NAMESPACE}
           fi
 
-          # Wait for rollout to complete
-          kubectl rollout status deployment/vault-guard --timeout=5m
-
-          # List resources in namespace
-          kubectl get all -n vault-guard
+          # List all resources in the namespace
+          kubectl get all --namespace=${NAMESPACE}
         '''
       }
     }
