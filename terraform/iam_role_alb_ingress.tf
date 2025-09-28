@@ -7,7 +7,7 @@ resource "aws_iam_role" "alb_ingress" {
       {
         Effect = "Allow"
         Principal = {
-          Federated = aws_iam_openid_connect_provider.eks.arn
+          Federated = data.aws_iam_openid_connect_provider.eks.arn
         }
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
@@ -19,5 +19,5 @@ resource "aws_iam_role" "alb_ingress" {
     ]
   })
 
-  depends_on = [aws_iam_openid_connect_provider.eks]
+  depends_on = [data.aws_iam_openid_connect_provider.eks]
 }
