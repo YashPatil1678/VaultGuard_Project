@@ -18,4 +18,6 @@ resource "aws_iam_role" "alb_ingress" {
       }
     ]
   })
+
+  depends_on = [aws_iam_openid_connect_provider.eks]
 }
