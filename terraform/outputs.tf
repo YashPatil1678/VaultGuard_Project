@@ -3,3 +3,7 @@ output "alb_controller_role_arn" {
   value       = aws_iam_role.alb_ingress.arn
 }
 
+output "cluster_name" {
+  description = "The name of the EKS cluster"
+  value = module.eks.cluster_name
+}
