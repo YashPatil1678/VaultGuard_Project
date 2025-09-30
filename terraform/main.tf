@@ -3,7 +3,7 @@ provider "aws" {
 }
 
 module "vpc" {
-  source = "./modules/vpc"
+  source = "./vpc"
 
   region                = var.region
   availability_zones    = var.availability_zones
@@ -13,7 +13,7 @@ module "vpc" {
 }
 
 module "eks" {
-  source = "./modules/eks"
+  source = "./eks"
 
   region          = var.region
   cluster_name    = var.cluster_name
