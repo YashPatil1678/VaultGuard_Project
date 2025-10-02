@@ -3,8 +3,20 @@ module "eks" {
   version = "~> 21.0"
 
   cluster_name                   = local.name
-  cluster_endpoint_public_access = true
+  cluster_version                = "1.27"               # Specify your desired Kubernetes version
+  cluster_endpoint_public_access = true                 # Enable public access to API server
+  cluster_endpoint_private_access = false               # Disable private access (optional)
 
+  # You can restrict API access to specific CIDRs (default is 0.0.0.0/0)
+  cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"] 
+
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.private_subnets               # Subnets for EKS worker nodes
+
+  # Optional: Specify the IAM role for cluster if you manage it separately
+  # cluster_iam_role_name = "eks-cluster-role"
+
+  # Enable and configure cluster addons
   cluster_addons = {
     coredns = {
       most_recent = true
@@ -17,6 +29,7 @@ module "eks" {
     }
   }
 
+  # Defaults applied to all managed node groups
   eks_managed_node_group_defaults = {
     ami_type       = "AL2_x86_64"
     instance_types = ["t2.micro"]
@@ -24,22 +37,23 @@ module "eks" {
   }
 
   eks_managed_node_groups = {
-    vaultguard-cluster-wg = {
-      min_size     = 1
-      max_size     = 2
+    default = {
       desired_size = 1
+      max_size     = 2
+      min_size     = 1
 
       instance_types = ["t2.micro"]
       capacity_type  = "SPOT"
 
       tags = {
-        ExtraTag = "vaultguard-cluster"
+        Name = "eks-node-group-default"
       }
     }
   }
 
-  vpc_id     = module.vpc.vpc_id
-  subnet_ids = module.vpc.private_subnets
-
-  tags = local.tags
+  # Tags for the cluster and resources
+  tags = {
+    Environment = "dev"
+    Terraform   = "true"
+  }
 }
