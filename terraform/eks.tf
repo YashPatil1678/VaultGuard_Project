@@ -3,7 +3,7 @@ module "eks" {
   version = "~> 21.0"
 
   cluster_name                   = local.name
-  cluster_version                = "1.27"               # Specify your desired Kubernetes version
+  cluster_version                = "1.33"               # Specify your desired Kubernetes version
   cluster_endpoint_public_access = true                 # Enable public access to API server
   cluster_endpoint_private_access = false               # Disable private access (optional)
 
