@@ -1,35 +1,47 @@
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "20.8.5" # lock to a recent stable v20 release
+  version = "21.0.1"
 
-  cluster_name    = var.cluster_name
-  cluster_version = var.cluster_version
+  cluster_name                   = local.name
+  cluster_endpoint_public_access = true
 
-  vpc_id      = module.vpc.vpc_id
-  subnet_ids  = module.vpc.private_subnets
-
-  cluster_endpoint_public_access  = true
-
-  eks_managed_node_groups = {
-    default = {
-      desired_size = var.node_desired_capacity
-      min_size     = var.node_min_capacity
-      max_size     = var.node_max_capacity
-
-      instance_types = var.node_instance_types
-      disk_size      = 10
-
-      labels = {
-        role = "worker"
-      }
-
-      tags = {
-        "Name" = "${var.cluster_name}-node"
-      }
+  cluster_addons = {
+    coredns = {
+      most_recent = true
+    }
+    kube-proxy = {
+      most_recent = true
+    }
+    vpc-cni = {
+      most_recent = true
     }
   }
 
-  tags = merge(var.tag_map, {
-    "Name" = var.cluster_name
-  })
+  vpc_id                   = module.vpc.vpc_id
+  subnet_ids               = module.vpc.private_subnets
+  control_plane_subnet_ids = module.vpc.intra_subnets
+
+ eks_managed_node_group_defaults = {
+  ami_type       = "AL2_x86_64"
+  instance_types = ["t2.micro"]
+
+    attach_cluster_primary_security_group = true
+  }
+
+  eks_managed_node_groups = {
+    vaultguard-cluster-wg = {
+      min_size     = 1
+      max_size     = 2
+      desired_size = 1
+
+      instance_types = ["t2.micro"]
+      capacity_type  = "SPOT"
+
+      tags = {
+        ExtraTag = "vaultguard-cluster"
+      }
+    }
+  }
+  
+  tags = local.tags
 }
