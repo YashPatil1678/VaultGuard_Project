@@ -22,3 +22,4 @@ output "kubeconfig_file" {
   value = "${path.module}/kubeconfig_${var.cluster_name}"
 }
 
+
