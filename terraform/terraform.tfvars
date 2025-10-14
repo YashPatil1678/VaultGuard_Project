@@ -1,0 +1,13 @@
+region                = "ap-south-1"
+cluster_name          = "vaultguard-cluster"
+vpc_cidr              = "10.0.0.0/16"
+public_subnet_a_cidr  = "10.0.1.0/24"
+public_subnet_b_cidr  = "10.0.2.0/24"
+private_subnet_a_cidr = "10.0.3.0/24"
+private_subnet_b_cidr = "10.0.4.0/24"
+availability_zone_a   = "ap-south-1a"
+availability_zone_b   = "ap-south-1b"
+node_instance_type    = "t2.micro"
+node_desired_size     = 2
+node_max_size         = 3
+node_min_size         = 1
