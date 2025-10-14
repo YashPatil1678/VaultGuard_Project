@@ -26,19 +26,21 @@ module "eks" {
 
   # Add-ons
   cluster_addons = {
-    coredns = {
-      resolve_conflicts_on_update = "NONE"
-    }
-    kube_proxy = {
-      resolve_conflicts_on_update = "NONE"
-    }
-    vpc_cni = {
-      resolve_conflicts_on_update = "NONE"
-    }
-    aws_ebs_csi_driver = {
-      resolve_conflicts_on_update = "NONE"
-    }
+  coredns = {
+    resolve_conflicts_on_update = "NONE"
+    # version = omit or ""
   }
+  kube_proxy = {
+    resolve_conflicts_on_update = "NONE"
+  }
+  vpc_cni = {
+    resolve_conflicts_on_update = "NONE"
+  }
+  aws_ebs_csi_driver = {
+    resolve_conflicts_on_update = "NONE"
+  }
+}
+
 
   tags = {
     Environment = "dev"
